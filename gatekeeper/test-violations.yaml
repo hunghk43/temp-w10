@@ -1,4 +1,4 @@
-# Test file — dùng để nghiệm thu 4 luật Gatekeeper
+# Test file — dùng để nghiệm thu các luật Gatekeeper
 # Apply từng pod một và kiểm tra bị reject
 # kubectl apply -f test-violations.yaml -n demo  (expect: tất cả bị REJECT)
 # kubectl apply -f test-valid.yaml -n demo        (expect: PASS)
@@ -58,6 +58,24 @@ spec:
   containers:
   - name: app
     image: nginx:1.25.3
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+---
+# FAIL: vi phạm Lab 1.3 — image từ registry không được phép (docker.io)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-fail-bad-registry
+  namespace: demo
+spec:
+  securityContext:
+    runAsUser: 1000
+    runAsNonRoot: true
+  containers:
+  - name: app
+    image: docker.io/nginx:1.25.3
     resources:
       limits:
         cpu: 100m

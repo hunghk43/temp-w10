@@ -1,0 +1,44 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8sallowedregistry
+  annotations:
+    description: "Lab 1.3: Chỉ cho phép image từ registry được whitelist, chặn các registry khác"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sAllowedRegistry
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedRegistries:
+              type: array
+              items:
+                type: string
+              description: "Danh sách registry prefix được phép, VD: ghcr.io/hunghk43/"
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sallowedregistry
+
+        # Kiểm tra containers thường
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not _is_allowed(container.image)
+          msg := sprintf("Container '%v' dùng image '%v': chỉ được phép pull từ registry %v", [container.name, container.image, input.parameters.allowedRegistries])
+        }
+
+        # Kiểm tra initContainers (nếu có)
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.initContainers[_]
+          not _is_allowed(container.image)
+          msg := sprintf("initContainer '%v' dùng image '%v': chỉ được phép pull từ registry %v", [container.name, container.image, input.parameters.allowedRegistries])
+        }
+
+        # Image hợp lệ nếu bắt đầu bằng 1 trong các prefix được phép
+        _is_allowed(image) {
+          registry := input.parameters.allowedRegistries[_]
+          startswith(image, registry)
+        }
