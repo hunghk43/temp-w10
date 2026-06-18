@@ -19,9 +19,11 @@ spec:
       labels:
         app: api
     spec:
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
       - name: api
-        image: ghcr.io/vuong-bach/w10-api:0.0.2
+        image: ghcr.io/hunghk43/w10-api:0.0.2
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
