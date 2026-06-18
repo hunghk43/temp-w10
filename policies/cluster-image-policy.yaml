@@ -1,0 +1,15 @@
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: verify-image-signature
+spec:
+  images:
+    # Chỉ enforce trên image từ registry của repo này
+    - glob: "ghcr.io/hunghk43/w10-api*"
+  authorities:
+    - key:
+        data: |
+          -----BEGIN PUBLIC KEY-----
+          MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECYuZ/xFQ6WU/Z0Or9yD47sfshMKL
+          lzer/HqVuaZm2Z6SnLIXyhwoB9N5eStqEehMWeCPFi1a8FFuPhp9JxhsRw==
+          -----END PUBLIC KEY-----

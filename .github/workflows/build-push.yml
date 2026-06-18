@@ -20,6 +20,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write   # cần cho cosign
 
     steps:
       - name: Checkout repository
@@ -54,13 +55,46 @@ jobs:
             type=raw,value=${{ steps.semver.outputs.version }}
             type=sha,prefix=v${{ steps.semver.outputs.version }}-
 
-      - name: Build and push Docker image
+      - name: Build image (no push yet — scan first)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/api
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # Lab 2.2a — Trivy scan: fail CI nếu có CVE HIGH/CRITICAL
+      - name: Trivy scan CVE
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
+          format: table
+          exit-code: 1          # fail pipeline nếu tìm thấy CVE HIGH+
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true  # bỏ qua CVE chưa có patch (tránh block mãi)
+
+      - name: Push image (chỉ push sau khi scan pass)
         uses: docker/build-push-action@v6
         with:
           context: ./src/api
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # Lab 2.2b — Cosign sign image bằng key-based (private key từ GitHub Secret)
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.8.2
+
+      - name: Sign image with key
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
+          cosign sign --key cosign.key \
+            --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
+          rm cosign.key
 
       - name: Update rollout.yaml with new version
         run: |
