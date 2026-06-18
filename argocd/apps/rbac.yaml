@@ -1,20 +1,23 @@
-# Lab 5: app-of-apps root
-# Root App: App of Apps pattern - quản lý tất cả child applications
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: root
+  name: rbac
   namespace: argocd
+  annotations:
+    # Deploy sau namespace (wave -1) nhưng trước app workload
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
     repoURL: https://github.com/hunghk43/temp-w10.git
-    path: argocd/apps
-    targetRevision: main
+    targetRevision: HEAD
+    path: rbac
   destination:
     server: https://kubernetes.default.svc
-    namespace: argocd
+    namespace: demo   # RoleBinding alice cần tạo ở namespace demo
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

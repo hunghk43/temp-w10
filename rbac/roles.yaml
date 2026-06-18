@@ -1,0 +1,56 @@
+# ── alice: developer ── chỉ trong namespace demo ──────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+  namespace: demo
+rules:
+  # CRUD workload: Deployment, ReplicaSet
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Argo Rollouts
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Pod: xem + xóa (để restart)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "delete"]
+  # Service + ConfigMap
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# ── bob: sre ── xem + thao tác pod toàn cụm ───────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sre
+rules:
+  # Đọc tất cả resource toàn cụm
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # Thao tác pod: xóa để restart
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  # Scale deployment
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Rollout thao tác
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+# ── carol: viewer ── chỉ đọc toàn cụm ────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: viewer
+rules:
+  - apiGroups: ["", "apps", "argoproj.io", "monitoring.coreos.com"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
