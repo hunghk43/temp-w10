@@ -1,4 +1,4 @@
-# Lab 1 — RBAC + Gatekeeper (W10)
+# W10 Lab — RBAC + Gatekeeper + Trivy + Cosign
 
 > GitOps-only: mọi thứ qua ArgoCD — không `kubectl apply` tay.
 > Repo: https://github.com/hunghk43/temp-w10
@@ -18,73 +18,56 @@
 │   │   ├── required-resources.yaml
 │   │   ├── no-root-user.yaml
 │   │   ├── no-host-network.yaml
-│   │   └── allowed-registry.yaml   # Lab 1.3 custom policy
-│   ├── constraints/          # 5 Constraint tương ứng
-│   │   ├── no-latest-tag.yaml
-│   │   ├── required-resources.yaml
-│   │   ├── no-root-user.yaml
-│   │   ├── no-host-network.yaml
 │   │   └── allowed-registry.yaml
+│   ├── constraints/          # 5 Constraint tương ứng
 │   ├── test-violations.yaml  # 5 Pod vi phạm → expect REJECT
 │   └── test-valid.yaml       # 1 Pod hợp lệ → expect PASS
+├── policies/
+│   └── cluster-image-policy.yaml   # ClusterImagePolicy (Sigstore)
+├── signing/
+│   └── cosign.pub            # Public key verify image signature
+├── .github/workflows/
+│   └── build-push.yml        # CI: Trivy scan + Cosign sign
 ├── argocd/
 │   ├── root.yaml             # App-of-Apps
 │   └── apps/
 │       ├── rbac.yaml
 │       ├── gatekeeper-controller.yaml   # sync-wave: 0
 │       ├── gatekeeper-templates.yaml    # sync-wave: 1
-│       └── gatekeeper-constraints.yaml  # sync-wave: 2
+│       ├── gatekeeper-constraints.yaml  # sync-wave: 2
+│       ├── policy-controller.yaml       # sync-wave: 1 (Sigstore)
+│       └── policies.yaml                # sync-wave: 2 (ClusterImagePolicy)
 └── img/                      # Evidence screenshots
 ```
 
 ---
 
+# Buổi sáng — RBAC + Gatekeeper
+
 ## Lab 1.1 — RBAC
 
 ### Thiết kế phân quyền
 
-| User  | Kind        | Role/ClusterRole | Scope      | Quyền                                    |
-|-------|-------------|------------------|------------|------------------------------------------|
-| alice | User        | developer (Role) | ns `demo`  | CRUD deploy/pod/service/rollout          |
-| bob   | User        | sre (ClusterRole)| cluster    | get/list/watch tất cả + delete pod + scale |
-| carol | User        | viewer (ClusterRole) | cluster | get/list/watch only                    |
+| User  | Kind | Role/ClusterRole     | Scope     | Quyền                                      |
+|-------|------|----------------------|-----------|--------------------------------------------|
+| alice | User | developer (Role)     | ns `demo` | CRUD deploy/pod/service/rollout            |
+| bob   | User | sre (ClusterRole)    | cluster   | get/list/watch tất cả + delete pod + scale |
+| carol | User | viewer (ClusterRole) | cluster   | get/list/watch only                        |
 
 - alice → `Role` (namespace-scoped) vì chỉ làm việc trong `demo`
 - bob/carol → `ClusterRole` vì cần quyền toàn cụm
 - carol không có create/delete/update bất kỳ resource nào
 
-### Files
-
-- `rbac/roles.yaml` — định nghĩa 3 role
-- `rbac/rolebindings.yaml` — gán alice/bob/carol
-- `argocd/apps/rbac.yaml` — ArgoCD App sync-wave: 0
-
 ### Nghiệm thu Lab 1.1
 
-Chạy 4 lệnh sau sau khi ArgoCD sync:
+| Lệnh | Kỳ vọng | Kết quả |
+|------|---------|---------|
+| `can-i create deploy -n demo --as alice` | yes | ✅ |
+| `can-i create deploy -n kube-system --as alice` | no | ✅ |
+| `can-i get pods -A --as bob` | yes | ✅ |
+| `can-i delete nodes --as carol` | no | ✅ |
 
-```bash
-# 1. alice tạo deploy trong ns demo → YES
-kubectl auth can-i create deploy -n demo --as alice
-
-# 2. alice tạo deploy trong ns kube-system → NO
-kubectl auth can-i create deploy -n kube-system --as alice
-
-# 3. bob xem pods toàn cụm → YES
-kubectl auth can-i get pods -A --as bob
-
-# 4. carol xóa node → NO
-kubectl auth can-i delete nodes --as carol
-```
-
-| Lệnh | Kỳ vọng |
-|------|---------|
-| `can-i create deploy -n demo --as alice` | yes |
-| `can-i create deploy -n kube-system --as alice` | no |
-| `can-i get pods -A --as bob` | yes |
-| `can-i delete nodes --as carol` | no |
-
-Evidence: `img/lab1.1-rbac-auth-can-i.png`
+![Lab 1.1 — RBAC auth can-i](img/w10-morning-lab1.1.jpg)
 
 ---
 
@@ -109,101 +92,27 @@ wave 2 → gatekeeper-constraints  (Constraint objects)
 
 ### Nghiệm thu Lab 1.2
 
-```bash
-# --- EXPECT REJECT ---
+| Test | Kỳ vọng | Kết quả |
+|------|---------|---------|
+| Pod image `:latest` | reject | ✅ |
+| Pod thiếu `resources.limits` | reject | ✅ |
+| Pod `runAsUser: 0` | reject | ✅ |
+| Pod `hostNetwork: true` | reject | ✅ |
+| Pod hợp lệ (pinned + limits + non-root) | pass | ✅ |
 
-# Luật 1: image :latest
-kubectl apply -n demo -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-latest
-spec:
-  containers:
-  - name: app
-    image: nginx:latest
-    resources:
-      limits:
-        cpu: 100m
-        memory: 64Mi
-EOF
+![Lab 1.2 — Test latest tag reject](img/w10-morning-lab1.2.jpg-%20test-latest.jpg)
 
-# Luật 2: thiếu resources.limits
-kubectl apply -n demo -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-no-limits
-spec:
-  containers:
-  - name: app
-    image: nginx:1.25.3
-EOF
+![Lab 1.2 — Test resource limits reject](img/w10-morning-lab1.2.jpg-%20test-resource-limits.png)
 
-# Luật 3: runAsUser: 0
-kubectl apply -n demo -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-root
-spec:
-  securityContext:
-    runAsUser: 0
-  containers:
-  - name: app
-    image: nginx:1.25.3
-    resources:
-      limits:
-        cpu: 100m
-        memory: 64Mi
-EOF
+![Lab 1.2 — Test runAsUser reject](img/w10-morning-lab1.2.jpg-%20test-runAsUser.png)
 
-# Luật 4: hostNetwork: true
-kubectl apply -n demo -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-hostnet
-spec:
-  hostNetwork: true
-  containers:
-  - name: app
-    image: nginx:1.25.3
-    resources:
-      limits:
-        cpu: 100m
-        memory: 64Mi
-EOF
+![Lab 1.2 — Test hostNetwork reject](img/w10-morning-lab1.2.jpg-%20test-hostNetwork.png)
 
-# --- EXPECT PASS ---
-kubectl apply -f gatekeeper/test-valid.yaml
-```
-
-Hoặc dùng file có sẵn:
-
-```bash
-# Test tất cả vi phạm cùng lúc (expect: tất cả bị reject)
-kubectl apply -f gatekeeper/test-violations.yaml
-
-# Test pod hợp lệ (expect: created)
-kubectl apply -f gatekeeper/test-valid.yaml
-```
-
-| Test | Kỳ vọng |
-|------|---------|
-| Pod image `:latest` | reject |
-| Pod thiếu `resources.limits` | reject |
-| Pod `runAsUser: 0` | reject |
-| Pod `hostNetwork: true` | reject |
-| Pod hợp lệ (pinned + limits + non-root) | pass |
-
-Evidence: `img/lab1.2-gatekeeper-reject.png`, `img/lab1.2-gatekeeper-pass.png`
+![Lab 1.2 — Test valid pod pass](img/w10-morning-lab1.2.jpg-%20test-pass.png)
 
 ---
 
 ## Lab 1.3 — Custom Policy (Registry Whitelist)
-
-### Mô tả
 
 Chặn tất cả image không xuất phát từ `ghcr.io/hunghk43/`. Chỉ registry của repo cá nhân được phép pull.
 
@@ -222,51 +131,116 @@ _is_allowed(image) {
 
 ### Nghiệm thu Lab 1.3
 
-```bash
-# EXPECT REJECT: image từ docker.io
-kubectl apply -n demo -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: test-bad-registry
-spec:
-  securityContext:
-    runAsUser: 1000
-    runAsNonRoot: true
-  containers:
-  - name: app
-    image: docker.io/nginx:1.25.3
-    resources:
-      limits:
-        cpu: 100m
-        memory: 64Mi
-EOF
+| Test | Kỳ vọng | Kết quả |
+|------|---------|---------|
+| Pod image `docker.io/nginx:1.25.3` | reject | ✅ |
+| Pod image `ghcr.io/hunghk43/w10-api:*` | pass | ✅ |
 
-# EXPECT PASS: image từ ghcr.io/hunghk43/
-kubectl apply -f gatekeeper/test-valid.yaml
+![Lab 1.3 — ConstraintTemplate allowed-registry](img/w10-morning-lab1.3-ConstraintTemplate-done-ca-2.png)
+
+---
+
+# Buổi chiều — ESO + Supply Chain
+
+## Lab 2.1 — ESO (External Secrets Operator)
+
+ArgoCD sync External Secrets Operator + ExternalSecret lấy secret từ AWS Secrets Manager / SSM vào cluster.
+
+### Thứ tự deploy
+
+```
+wave 0 → eso (cài ESO operator qua Helm)
+wave 1 → eso-config (SecretStore + ExternalSecret)
 ```
 
-| Test | Kỳ vọng |
-|------|---------|
-| Pod image `docker.io/nginx:1.25.3` | reject |
-| Pod image `ghcr.io/hunghk43/w10-api:0.0.3` | pass |
+### Nghiệm thu Lab 2.1
 
-Evidence: `img/lab1.3-custom-policy-reject.png`, `img/lab1.3-custom-policy-pass.png`
+![Lab 2.1 — ESO sync](img/w10-afternoon-lab2.1.png)
+
+![Lab 2.1 — img2](img/w10-afternoon-lab2.1.png-img2.png)
+
+![Lab 2.1 — img3](img/w10-afternoon-lab2.1.png-img3.png)
+
+![Lab 2.1 — img4](img/w10-afternoon-lab2.1.png-img4.png)
+
+---
+
+## Lab 2.2 — Trivy + Cosign (Supply Chain Security)
+
+Cluster chỉ được chạy image đã scan sạch CVE và đã ký.
+
+### Kiến trúc
+
+```
+CI (GitHub Actions)
+  └── Build image
+  └── Trivy scan → fail nếu có CVE HIGH/CRITICAL
+  └── Push image (chỉ sau khi scan pass)
+  └── Cosign sign --key (private key từ GitHub Secret)
+
+Cluster (Admission)
+  └── Sigstore Policy Controller
+  └── ClusterImagePolicy → verify signature bằng cosign.pub
+  └── Namespace demo có label: policy.sigstore.dev/include=true
+```
+
+### Files chính
+
+| File | Mục đích |
+|------|---------|
+| `.github/workflows/build-push.yml` | CI: Trivy + Cosign sign |
+| `signing/cosign.pub` | Public key verify |
+| `policies/cluster-image-policy.yaml` | ClusterImagePolicy với public key |
+| `argocd/apps/policy-controller.yaml` | Cài Sigstore Policy Controller (wave 1) |
+| `argocd/apps/policies.yaml` | Sync ClusterImagePolicy (wave 2) |
+
+### Nghiệm thu Lab 2.2
+
+| Tình huống | Kỳ vọng | Kết quả |
+|-----------|---------|---------|
+| Push image chứa CVE HIGH | CI đỏ | ✅ |
+| Deploy image chưa ký | admission reject | ✅ |
+| Deploy image đã ký (từ CI) | pass | ✅ |
+
+**CI xanh + image đã ký:**
+
+![Lab 2.2 — GitHub Actions run success](img/w10-afternoon-lab2.2.-GitHub%20Actions%20run.png)
+
+![Lab 2.2 — CI xanh + image signed](img/w10-afternoon-lab2.2.-CL-xanh+image-sign.png)
+
+**Admission reject image chưa ký:**
+
+![Lab 2.2 — Admission reject unsigned image](img/w10-afternoon-lab2.2-admission%20reject-chưa%20ki.png)
+
+**Policy Controller + Policies Healthy trên ArgoCD:**
+
+![Lab 2.2 — Policy controller and policies healthy](img/w10-afternoon-lab2.2-policy-controller-and-policies-health.png)
 
 ---
 
 ## Checklist nộp bài
 
+### Buổi sáng
 - [x] `rbac/roles.yaml` — 3 role (Role + 2 ClusterRole)
-- [x] `rbac/rolebindings.yaml` — 3 binding (RoleBinding + 2 ClusterRoleBinding)
+- [x] `rbac/rolebindings.yaml` — 3 binding
 - [x] `argocd/apps/rbac.yaml` — ArgoCD App for RBAC
 - [x] `gatekeeper/templates/` — 5 ConstraintTemplate (4 luật + 1 custom)
 - [x] `gatekeeper/constraints/` — 5 Constraint với `enforcementAction: deny`
 - [x] `argocd/apps/gatekeeper-controller.yaml` — sync-wave: 0
 - [x] `argocd/apps/gatekeeper-templates.yaml` — sync-wave: 1
 - [x] `argocd/apps/gatekeeper-constraints.yaml` — sync-wave: 2
-- [x] `auth can-i` 4 lệnh trả đúng kỳ vọng
+- [x] `auth can-i` 4 lệnh đúng kỳ vọng
 - [x] 4 constraint reject vi phạm, pass pod hợp lệ
 - [x] Lab 1.3 custom Rego policy — reject registry ngoài whitelist
-- [x] Platform W9 vẫn Synced/Healthy sau khi bật enforce
-- [ ] Evidence screenshots trong `img/`
+
+### Buổi chiều
+- [x] `eso/` — SecretStore + ExternalSecret
+- [x] `argocd/apps/eso.yaml` + `eso-config.yaml` — ArgoCD Apps
+- [x] `.github/workflows/build-push.yml` — Trivy scan (exit-code 1) + Cosign sign
+- [x] `signing/cosign.pub` — public key committed
+- [x] `policies/cluster-image-policy.yaml` — ClusterImagePolicy với public key
+- [x] `argocd/apps/policy-controller.yaml` — Sigstore Policy Controller
+- [x] `argocd/apps/policies.yaml` — ClusterImagePolicy sync
+- [x] CI đỏ khi CVE HIGH, xanh khi sạch
+- [x] Admission reject image chưa ký (`policy.sigstore.dev`)
+- [x] Image đã ký từ CI deploy pass

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-unsigned
+  namespace: demo
+spec:
+  containers:
+    - name: test-unsigned
+      image: ghcr.io/hunghk43/w10-api:unsigned-test
+      resources:
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
