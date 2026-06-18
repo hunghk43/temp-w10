@@ -1,0 +1,34 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snorootuser
+  annotations:
+    description: "Luật 3: Cấm container chạy với runAsUser: 0 (root)"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoRootUser
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snorootuser
+
+        # Chặn nếu pod-level securityContext set runAsUser: 0
+        violation[{"msg": msg}] {
+          input.review.object.spec.securityContext.runAsUser == 0
+          msg := "Pod securityContext.runAsUser: 0 bị cấm — không được chạy container với quyền root"
+        }
+
+        # Chặn nếu container-level securityContext set runAsUser: 0
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.securityContext.runAsUser == 0
+          msg := sprintf("Container '%v': securityContext.runAsUser: 0 bị cấm", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.initContainers[_]
+          container.securityContext.runAsUser == 0
+          msg := sprintf("initContainer '%v': securityContext.runAsUser: 0 bị cấm", [container.name])
+        }

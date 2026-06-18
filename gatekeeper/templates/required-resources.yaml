@@ -1,0 +1,35 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredresources
+  annotations:
+    description: "Luật 2: Bắt buộc container phải có resources.limits"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredResources
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredresources
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.limits
+          msg := sprintf("Container '%v': thiếu resources.limits — bắt buộc khai báo cpu và memory limits", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.resources.limits
+          not container.resources.limits.cpu
+          msg := sprintf("Container '%v': thiếu resources.limits.cpu", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.resources.limits
+          not container.resources.limits.memory
+          msg := sprintf("Container '%v': thiếu resources.limits.memory", [container.name])
+        }

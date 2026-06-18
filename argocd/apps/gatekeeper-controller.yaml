@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gatekeeper-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"   # cài controller TRƯỚC tiên
+spec:
+  project: default
+  source:
+    repoURL: https://open-policy-agent.github.io/gatekeeper/charts
+    chart: gatekeeper
+    targetRevision: "3.17.1"
+    helm:
+      values: |
+        auditInterval: 30
+        constraintViolationsLimit: 20
+        logLevel: INFO
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gatekeeper-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

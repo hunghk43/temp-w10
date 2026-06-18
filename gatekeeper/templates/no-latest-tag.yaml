@@ -1,0 +1,37 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snolatesttag
+  annotations:
+    description: "Luật 1: Cấm image tag :latest hoặc không có tag"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoLatestTag
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snolatesttag
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          _is_bad_tag(container.image)
+          msg := sprintf("Container '%v' dùng image '%v': cấm dùng :latest hoặc không có tag", [container.name, container.image])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.initContainers[_]
+          _is_bad_tag(container.image)
+          msg := sprintf("initContainer '%v' dùng image '%v': cấm dùng :latest hoặc không có tag", [container.name, container.image])
+        }
+
+        # image không có dấu : → mặc định latest
+        _is_bad_tag(image) {
+          not contains(image, ":")
+        }
+
+        # image kết thúc bằng :latest
+        _is_bad_tag(image) {
+          endswith(image, ":latest")
+        }

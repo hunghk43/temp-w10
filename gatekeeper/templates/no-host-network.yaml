@@ -1,0 +1,20 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snohostnetwork
+  annotations:
+    description: "Luật 4: Cấm Pod dùng hostNetwork: true"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoHostNetwork
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snohostnetwork
+
+        violation[{"msg": msg}] {
+          input.review.object.spec.hostNetwork == true
+          msg := "hostNetwork: true bị cấm — Pod không được dùng network của host node"
+        }

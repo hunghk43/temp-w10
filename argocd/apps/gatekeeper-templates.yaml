@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gatekeeper-templates
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"   # sau controller, trước constraint
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/hunghk43/temp-w10.git
+    targetRevision: main
+    path: gatekeeper/templates
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gatekeeper-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,64 @@
+# Test file — dùng để nghiệm thu 4 luật Gatekeeper
+# Apply từng pod một và kiểm tra bị reject
+# kubectl apply -f test-violations.yaml -n demo  (expect: tất cả bị REJECT)
+# kubectl apply -f test-valid.yaml -n demo        (expect: PASS)
+
+---
+# FAIL: vi phạm luật 1 — image :latest
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-fail-latest-tag
+  namespace: demo
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+---
+# FAIL: vi phạm luật 2 — thiếu resources.limits
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-fail-no-limits
+  namespace: demo
+spec:
+  containers:
+  - name: app
+    image: nginx:1.25.3
+---
+# FAIL: vi phạm luật 3 — runAsUser: 0
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-fail-root-user
+  namespace: demo
+spec:
+  securityContext:
+    runAsUser: 0
+  containers:
+  - name: app
+    image: nginx:1.25.3
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+---
+# FAIL: vi phạm luật 4 — hostNetwork: true
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-fail-host-network
+  namespace: demo
+spec:
+  hostNetwork: true
+  containers:
+  - name: app
+    image: nginx:1.25.3
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
